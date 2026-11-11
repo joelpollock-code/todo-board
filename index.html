@@ -70,7 +70,9 @@
   .card.hidden { display: none; }
   .sortable-ghost { opacity: .35; }
   #col-done .card .t { text-decoration: line-through; color: var(--muted); }
-
+  .card .dt { display: block; font-size: 11px; color: #16a34a; font-weight: 600; margin-top: 2px; }
+  .col h2 .hbtns { display: flex; gap: 4px; flex-wrap: wrap; justify-content: flex-end; }
+  #col-done h2 { flex-wrap: wrap; gap: 4px; }
   dialog { border: 1px solid var(--border); border-radius: 10px; background: var(--panel); color: var(--text); width: min(480px, 92vw); }
   dialog form { display: flex; flex-direction: column; gap: 8px; }
   dialog label { font-size: 12px; color: var(--muted); display: flex; flex-direction: column; gap: 3px; }
@@ -144,6 +146,7 @@
     <button type="button" class="btn" id="fAddLink">+ Add link</button>
     <label>Stream <select id="fStream"></select></label>
     <label>Stage <select id="fCol"></select></label>
+    <label id="fDoneWrap">Completed on <input type="date" id="fDone"></label>
     <div class="row">
       <button type="button" class="btn del" id="fDel">Delete</button>
       <button type="button" class="btn" id="fCancel">Cancel</button>
@@ -201,7 +204,7 @@ const ls = {
   set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} },
   del(k) { try { localStorage.removeItem(k); } catch (e) {} },
 };
-const ui = Object.assign({ collapsed: [], tab: 'week' }, ls.get(UIKEY) || {});
+const ui = Object.assign({ collapsed: [], tab: 'week', showOld: false }, ls.get(UIKEY) || {});
 let state, filterOff = new Set(), editing = null, collapsed = new Set(ui.collapsed), dragging = false;
 const narrow = matchMedia('(max-width: 900px)');
 
@@ -219,11 +222,31 @@ function normalise(st) {           // tidies data from older saves or hand edits
     if (!STREAMS.some(s => s.id === t.stream)) t.stream = STREAMS[0].id;
     if (!seen.has(id)) st.cols.backlog.push(id);   // task with no column → backlog
   }
+  stampDone(st);
   return st;
 }
+// Completion dates (local time, YYYY-MM-DD). A card gets doneAt when it lands in Completed and loses it when it leaves.
+const pad = n => String(n).padStart(2, '0');
+const localDate = (d = new Date()) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+const thisMonth = () => localDate().slice(0, 7);
+function stampDone(st) {
+  let changed = false;
+  const done = new Set(st.cols.done);
+  for (const t of Object.values(st.tasks)) {
+    if (done.has(t.id) && !/^\d{4}-\d{2}-\d{2}$/.test(t.doneAt || '')) { t.doneAt = localDate(); changed = true; }
+    if (!done.has(t.id) && 'doneAt' in t) { delete t.doneAt; changed = true; }
+  }
+  return changed;
+}
+const isOld = t => t.doneAt && t.doneAt.slice(0, 7) < thisMonth();
+function fmtDate(iso) {
+  const [y, m, d] = iso.split('-').map(Number), dt = new Date(y, m - 1, d);
+  return dt.toLocaleDateString('en-AU', { day: 'numeric', month: 'short', ...(y !== new Date().getFullYear() ? { year: 'numeric' } : {}) });
+}
+const monthName = ym => { const [y, m] = ym.split('-').map(Number); return new Date(y, m - 1, 1).toLocaleDateString('en-AU', { month: 'long', year: 'numeric' }); };
 const load = () => { const d = ls.get(KEY); return isBoard(d) ? normalise(d) : emptyState(); };
 function save() { ls.set(KEY, state); schedulePush(); }
-const saveUI = () => ls.set(UIKEY, { collapsed: [...collapsed], tab: ui.tab });
+const saveUI = () => ls.set(UIKEY, { collapsed: [...collapsed], tab: ui.tab, showOld: ui.showOld });
 
 const streamOf = id => STREAMS.find(s => s.id === id) || STREAMS[0];
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -235,7 +258,7 @@ function cardHTML(t) {
     `<a href="${esc(safeUrl(l.url))}" target="_blank" rel="noopener" draggable="false" title="${esc(l.url)}">🔗 ${esc(l.label || 'Link')}</a>`).join('')}</span>` : '';
   return `<div class="card" data-id="${t.id}" data-stream="${t.stream}" style="--c:${s.c}">
     <button class="edit" title="Edit">✎</button>
-    <span class="s" title="${esc(s.name)}">${esc(s.short)}</span><span class="t">${esc(t.title)}</span>${t.note ? `<span class="note">${esc(t.note)}</span>` : ''}${links}
+    <span class="s" title="${esc(s.name)}">${esc(s.short)}</span><span class="t">${esc(t.title)}</span>${t.note ? `<span class="note">${esc(t.note)}</span>` : ''}${links}${t.doneAt ? `<span class="dt">✓ Completed ${esc(fmtDate(t.doneAt))}</span>` : ''}
   </div>`;
 }
 
@@ -255,7 +278,7 @@ function render() {
     }
     return `<section class="col${active}" id="col-${c.id}">
       <h2><span>${c.name} <span class="count" data-count="${c.id}"></span></span>
-        ${c.id === 'done' ? '<button class="btn" id="clearDone" title="Delete all completed tasks">Clear</button>' : ''}</h2>
+        ${c.id === 'done' ? '<span class="hbtns"><button class="btn" id="oldBtn" title="Show or hide cards completed before this month"></button><button class="btn" id="clearDone" title="Delete all completed tasks">Clear</button></span>' : ''}</h2>
       <div class="list" data-col="${c.id}">${state.cols[c.id].map(id => cardHTML(state.tasks[id])).join('')}</div>
     </section>`;
   }).join('');
@@ -277,6 +300,7 @@ function render() {
     if (!state.cols.done.length || !confirm(`Delete ${state.cols.done.length} completed task(s)? This cannot be undone.`)) return;
     state.cols.done.forEach(id => delete state.tasks[id]); state.cols.done = []; save(); render();
   };
+  document.getElementById('oldBtn').onclick = () => { ui.showOld = !ui.showOld; saveUI(); applyFilter(); };
   document.getElementById('empty').hidden = Object.keys(state.tasks).length > 0;
   applyFilter(); renderChips();
 }
@@ -286,7 +310,10 @@ function syncFromDOM() {
   document.querySelectorAll('.list').forEach(el => {
     state.cols[el.dataset.col].push(...[...el.children].map(c => c.dataset.id).filter(Boolean));
   });
-  save(); applyFilter(); renderChips();
+  const datesChanged = stampDone(state);
+  save();
+  if (datesChanged) setTimeout(render, 0);   // redraw so moved cards show / drop their completion date
+  else { applyFilter(); renderChips(); }
 }
 
 function renderChips() {
@@ -314,8 +341,12 @@ function applyFilter() {
   document.querySelectorAll('.card').forEach(el => {
     const t = state.tasks[el.dataset.id];
     const hay = (t.title + ' ' + t.note + ' ' + t.links.map(l => l.label + ' ' + l.url).join(' ')).toLowerCase();
-    el.classList.toggle('hidden', filterOff.has(t.stream) || (q && !hay.includes(q)));
+    const hideOld = !ui.showOld && isOld(t) && el.closest('[data-col]')?.dataset.col === 'done';
+    el.classList.toggle('hidden', !!(filterOff.has(t.stream) || (q && !hay.includes(q)) || hideOld));
   });
+  const oldCount = state.cols.done.filter(id => isOld(state.tasks[id])).length, oldBtn = document.getElementById('oldBtn');
+  oldBtn.hidden = oldCount === 0;
+  oldBtn.textContent = ui.showOld ? 'Hide earlier' : `Earlier months (${oldCount})`;
   document.querySelectorAll('.bsec').forEach(sec => {
     sec.classList.toggle('hidden', filterOff.has(sec.dataset.sec));
     const total = sec.querySelectorAll('.card').length, shown = sec.querySelectorAll('.card:not(.hidden)').length;
@@ -376,6 +407,8 @@ function openDialog(id) {
   if (!t.links.length) addLinkRow();
   document.getElementById('fStream').value = t.stream;
   document.getElementById('fCol').value = id ? colOf(id) : (narrow.matches ? ui.tab : 'backlog');
+  document.getElementById('fDone').value = t.doneAt || localDate();
+  showDoneDate();
   document.getElementById('fDel').style.visibility = id ? 'visible' : 'hidden';
   const viewOnly = narrow.matches && !!id;   // phone, opening an existing card: don't pop up the keyboard
   document.getElementById('fCancel').autofocus = viewOnly;
@@ -391,6 +424,8 @@ document.getElementById('board').addEventListener('dblclick', e => {
   if (e.target.closest('a')) return;
   const c = e.target.closest('.card'); if (c) openDialog(c.dataset.id);
 });
+function showDoneDate() { document.getElementById('fDoneWrap').hidden = document.getElementById('fCol').value !== 'done'; }
+document.getElementById('fCol').addEventListener('change', showDoneDate);
 document.getElementById('addBtn').onclick = () => openDialog(null);
 document.getElementById('fCancel').onclick = () => dlg.close();
 document.getElementById('fDel').onclick = () => {
@@ -403,18 +438,21 @@ document.getElementById('dlgForm').addEventListener('submit', () => {
   const data = { title, note: document.getElementById('fNote').value.trim(),
                  links: readLinks(), stream: document.getElementById('fStream').value };
   const newCol = document.getElementById('fCol').value;
+  let id = editing;
   if (editing) {
     Object.assign(state.tasks[editing], data);
     const oldCol = colOf(editing);
     if (oldCol !== newCol) { state.cols[oldCol] = state.cols[oldCol].filter(x => x !== editing); state.cols[newCol].unshift(editing); }
   } else {
-    const id = uid(); state.tasks[id] = { id, ...data }; state.cols[newCol].unshift(id);
+    id = uid(); state.tasks[id] = { id, ...data }; state.cols[newCol].unshift(id);
   }
+  if (newCol === 'done') state.tasks[id].doneAt = document.getElementById('fDone').value || localDate();
+  stampDone(state);
   save(); render();
 });
 
 // ---------- Backup / restore ----------
-const today = () => new Date().toISOString().slice(0, 10);
+const today = () => localDate();
 function download(blob, name) {
   const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 2000);
@@ -451,6 +489,7 @@ async function exportDocx() {
       body += para(run(s.name, { b: true, sz: 24, color: s.c.slice(1) }), { before: 120, after: 40 });
       for (const t of items) {
         body += para(run('☐  ', { sz: 22 }) + run(t.title, { sz: 22 }), { ind: 360, after: t.note || t.links.length ? 0 : 40 });
+        if (t.doneAt) body += para(run('Completed ' + fmtDate(t.doneAt), { color: '16A34A', sz: 20 }), { ind: 720, after: t.note || t.links.length ? 0 : 40 });
         if (t.note) body += para(run(t.note, { i: true, color: '6B7280', sz: 20 }), { ind: 720, after: t.links.length ? 0 : 40 });
         if (t.links.length) body += para(t.links.map(l => link(l.label || 'Link', safeUrl(l.url))).join(run('   ·   ', { sz: 20, color: '6B7280' })), { ind: 720, after: 40 });
       }
