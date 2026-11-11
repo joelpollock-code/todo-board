@@ -1,0 +1,622 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#d0e8f1">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="To-Do">
+<meta name="robots" content="noindex">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='20' fill='%232563eb'/><path d='M28 52l14 14 30-32' stroke='white' stroke-width='10' fill='none' stroke-linecap='round' stroke-linejoin='round'/></svg>">
+<title>To-Do Board</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.2/Sortable.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<style>
+  :root {
+    --bg: #d0e8f1; --panel: #ffffff; --card: #ffffff; --text: #1f2937; --muted: #6b7280;
+    --border: #c3c9d2; --accent: #2563eb; --sec: #f9fafb; --warn: #dc2626;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --panel: #1b1e25; --card: #242832; --text: #e5e7eb; --muted: #9ca3af; --border: #4a5163; --accent: #60a5fa; --sec: #20232b; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 13px/1.35 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  header { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 10px 14px; background: var(--panel); border-bottom: 1px solid var(--border); position: sticky; top: 0; z-index: 5; }
+  h1 { font-size: 16px; margin: 0 10px 0 0; }
+  .chips { display: flex; flex-wrap: wrap; gap: 5px; flex: 1; }
+  .chip { border: 1px solid var(--border); background: var(--card); color: var(--text); border-radius: 999px; padding: 3px 9px 3px 7px; cursor: pointer; font-size: 12px; display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
+  .chip .dot { width: 10px; height: 10px; border-radius: 50%; }
+  .chip.off { opacity: .35; }
+  .chip .n { color: var(--muted); }
+  input[type=search], .btn, select, input[type=text], input[type=password], textarea { font: inherit; color: var(--text); background: var(--card); border: 1px solid var(--border); border-radius: 6px; padding: 5px 8px; }
+  .btn { cursor: pointer; white-space: nowrap; }
+  .btn.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .btn.warn { color: var(--warn); border-color: var(--warn); }
+  .extra { display: contents; }
+  #menuBtn, #tabs { display: none; }
+  #empty { margin: 10px 10px 0; padding: 10px 12px; background: var(--panel); border: 1px solid var(--border); border-radius: 8px; }
+  #empty[hidden] { display: none; }
+
+  main { display: grid; grid-template-columns: minmax(0, 2.4fr) repeat(4, minmax(0, 1fr)); gap: 10px; padding: 10px; width: 100%; align-items: start; }
+  .col { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; display: flex; flex-direction: column; min-height: 200px; }
+  .col h2 { font-size: 13px; margin: 0; padding: 8px 10px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; text-transform: uppercase; letter-spacing: .04em; }
+  .col h2 .count { color: var(--muted); font-weight: 500; }
+  .col h2 button { font-size: 12px; padding: 1px 8px; }
+  .list { padding: 6px; display: flex; flex-direction: column; gap: 4px; flex: 1; min-height: 120px; }
+
+  /* Backlog: one band per stream */
+  .bwrap { padding: 6px; display: flex; flex-direction: column; gap: 6px; }
+  .bsec { border: 1px solid var(--border); border-top: 3px solid var(--c); border-radius: 6px; background: var(--sec); }
+  .bsec.hidden { display: none; }
+  .bhead { display: flex; align-items: center; gap: 6px; padding: 4px 8px; font-weight: 600; font-size: 12px; color: var(--c); cursor: pointer; user-select: none; }
+  .bhead .n { color: var(--muted); font-weight: 500; }
+  .bhead .arrow { margin-left: auto; color: var(--muted); transition: transform .15s; }
+  .bsec.collapsed .arrow { transform: rotate(-90deg); }
+  .bsec.collapsed .list { display: none; }
+  .bsec .list { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); align-content: start; min-height: 30px; padding: 0 6px 6px; }
+
+  .card { overflow-wrap: anywhere; min-width: 0; background: var(--card); border: 1px solid var(--border); border-left: 5px solid var(--c); border-radius: 5px; padding: 4px 7px; cursor: grab; position: relative; }
+  .card:hover { box-shadow: 0 1px 4px rgba(0,0,0,.15); }
+  .card .t { display: block; }
+  .card .s { float: right; margin: 1px 12px 0 6px; font-size: 9.5px; color: var(--c); font-weight: 700; text-transform: uppercase; letter-spacing: .03em; }
+  .bsec .card .s { display: none; }
+  .card .note { font-size: 11.5px; color: var(--muted); display: block; margin-top: 1px; white-space: pre-wrap; }
+  .card .links { display: flex; flex-wrap: wrap; gap: 3px 8px; margin-top: 2px; }
+  .card .links a { font-size: 11.5px; color: var(--accent); text-decoration: none; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .card .links a:hover { text-decoration: underline; }
+  .card .edit { position: absolute; right: 3px; top: 2px; border: 0; background: none; color: var(--muted); cursor: pointer; opacity: 0; font-size: 13px; }
+  .card:hover .edit { opacity: 1; }
+  .card.hidden { display: none; }
+  .sortable-ghost { opacity: .35; }
+  #col-done .card .t { text-decoration: line-through; color: var(--muted); }
+
+  dialog { border: 1px solid var(--border); border-radius: 10px; background: var(--panel); color: var(--text); width: min(480px, 92vw); }
+  dialog form { display: flex; flex-direction: column; gap: 8px; }
+  dialog label { font-size: 12px; color: var(--muted); display: flex; flex-direction: column; gap: 3px; }
+  dialog .hint { font-size: 11px; color: var(--muted); }
+  dialog .hint a { color: var(--accent); }
+  dialog .row { display: flex; gap: 6px; justify-content: flex-end; }
+  dialog .row .del { margin-right: auto; color: var(--warn); }
+  .linkhead { font-size: 12px; color: var(--muted); }
+  #fLinksList { display: flex; flex-direction: column; gap: 4px; }
+  .lrow { display: grid; grid-template-columns: 120px 1fr auto; gap: 4px; }
+  .lrow input { min-width: 0; }
+  .lrow .rm { padding: 2px 8px; color: var(--muted); }
+  #fAddLink { align-self: flex-start; font-size: 12px; padding: 2px 8px; }
+
+  /* ---------- Phone / small tablet: one column at a time, chosen by tabs ---------- */
+  @media (max-width: 900px) {
+    body { font-size: 14px; }
+    header { position: static; padding: 8px 10px; gap: 6px; }
+    h1 { font-size: 15px; margin-right: auto; }
+    #q { order: 10; flex: 1 1 100%; min-width: 0; }
+    .chips { order: 11; flex: 1 1 100%; flex-wrap: nowrap; overflow-x: auto; padding-bottom: 2px; scrollbar-width: none; }
+    #menuBtn { display: inline-block; }
+    .extra { display: none; }
+    .extra.open { display: flex; order: 12; flex: 1 1 100%; gap: 6px; flex-wrap: wrap; }
+    #tabs { display: flex; position: sticky; top: 0; z-index: 6; background: var(--panel); border-bottom: 1px solid var(--border); overflow-x: auto; scrollbar-width: none; }
+    #tabs button { flex: 1 0 auto; border: 0; background: none; color: var(--muted); font: inherit; font-size: 13px; padding: 10px 10px 8px; border-bottom: 3px solid transparent; cursor: pointer; }
+    #tabs button.active { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
+    #tabs .tn { font-size: 11px; opacity: .8; }
+    main { grid-template-columns: 1fr; padding: 8px; }
+    .col { display: none; }
+    .col.active { display: flex; }
+    .col h2 { display: none; }
+    #col-done.active h2 { display: flex; }
+    .bsec .list { grid-template-columns: 1fr; }
+    .card { padding: 8px 10px; cursor: pointer; }
+    .card .note, .card .links a { font-size: 12.5px; }
+    .card .edit { display: none; }
+    .card .s { margin-right: 0; }
+    dialog { width: calc(100vw - 16px); max-width: none; max-height: calc(100vh - 16px); padding: 14px; }
+    .lrow { grid-template-columns: 90px 1fr auto; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>To-Do Board</h1>
+  <div class="chips" id="chips"></div>
+  <input type="search" id="q" placeholder="Search…">
+  <button class="btn primary" id="addBtn">+ Add</button>
+  <button class="btn" id="syncBtn" title="Save this board to GitHub so it's the same on every device">☁ Set up sync</button>
+  <button class="btn" id="menuBtn" aria-label="More options">☰</button>
+  <span class="extra" id="extra">
+    <button class="btn" id="docxBtn" title="Download the board as a Word document">Export .docx</button>
+    <button class="btn" id="exportBtn" title="Download a backup file">Backup</button>
+    <button class="btn" id="importBtn" title="Load a backup file">Restore</button>
+  </span>
+  <input type="file" id="importFile" accept=".json,application/json" hidden>
+</header>
+<nav id="tabs"></nav>
+<div id="empty" hidden>This board is empty. To bring in your cards, click <b>Restore</b> and pick a backup file, or click <b>☁ Set up sync</b> to load your board from GitHub.</div>
+
+<main id="board"></main>
+
+<dialog id="dlg">
+  <form method="dialog" id="dlgForm">
+    <strong id="dlgTitle">Task</strong>
+    <label>Task <input type="text" id="fTitle" required></label>
+    <label>Notes <textarea id="fNote" rows="3"></textarea></label>
+    <div class="linkhead">Links <span class="hint">(label shown on the card · web address)</span></div>
+    <div id="fLinksList"></div>
+    <button type="button" class="btn" id="fAddLink">+ Add link</button>
+    <label>Stream <select id="fStream"></select></label>
+    <label>Stage <select id="fCol"></select></label>
+    <div class="row">
+      <button type="button" class="btn del" id="fDel">Delete</button>
+      <button type="button" class="btn" id="fCancel">Cancel</button>
+      <button type="submit" class="btn primary">Save</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="ghDlg">
+  <form method="dialog" id="ghForm">
+    <strong>Sync with GitHub</strong>
+    <span class="hint">Your cards are saved to <code>board.json</code> in a private GitHub repo, so every device sees the same board. These settings stay on this device only.</span>
+    <label>GitHub username <input type="text" id="gOwner" autocomplete="username" autocapitalize="off" spellcheck="false" required></label>
+    <label>Private repo name <input type="text" id="gRepo" autocapitalize="off" spellcheck="false" required></label>
+    <label>Access key (fine-grained token)
+      <input type="password" id="gToken" autocomplete="off" spellcheck="false" required>
+      <span class="hint">Make one at <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener">github.com → Settings → Fine-grained tokens</a>. Only select the private repo, and set <i>Contents</i> to <i>Read and write</i>.</span>
+    </label>
+    <details><summary class="hint">Advanced</summary>
+      <label>File path <input type="text" id="gPath" autocapitalize="off" spellcheck="false"></label>
+      <label>Branch <input type="text" id="gBranch" autocapitalize="off" spellcheck="false"></label>
+    </details>
+    <div class="row">
+      <button type="button" class="btn del" id="gOff">Turn off sync</button>
+      <button type="button" class="btn" id="gCancel">Cancel</button>
+      <button type="submit" class="btn primary">Connect</button>
+    </div>
+  </form>
+</dialog>
+
+<script>
+const STREAMS = [
+  { id: 'rep',  short: 'Report',     name: 'Reporting & Dashboard', c: '#2563eb' },
+  { id: 'mkt',  short: 'Mktg',       name: 'Marketing General',     c: '#db2777' },
+  { id: 'web',  short: 'Web',        name: 'Website',               c: '#7c3aed' },
+  { id: 'soc',  short: 'Social',     name: 'Social',                c: '#ea580c' },
+  { id: 'hand', short: 'Handout',    name: 'Client Handouts',       c: '#0d9488' },
+  { id: 'oth',  short: 'Other',      name: 'Other Marketing',       c: '#ca8a04' },
+  { id: 'ref',  short: 'Referrer',   name: 'Referrers',             c: '#16a34a' },
+  { id: 'it',   short: 'IT',         name: 'IT & Halaxy',           c: '#0891b2' },
+  { id: 'fac',  short: 'Facilities', name: 'Facilities',            c: '#78716c' },
+];
+const COLS = [
+  { id: 'backlog', name: 'Backlog',         tab: 'Backlog' },
+  { id: 'next',    name: 'Next Priorities', tab: 'Next' },
+  { id: 'week',    name: 'This Week',       tab: 'This week' },
+  { id: 'wait',    name: 'Waiting',         tab: 'Waiting' },
+  { id: 'done',    name: 'Completed',       tab: 'Done' },
+];
+
+// No task data lives in this file: the page is public. Cards come from this device's storage, a backup file, or GitHub sync.
+const KEY = 'joel-kanban-v1', UIKEY = 'joel-kanban-ui';
+const ls = {
+  get(k) { try { return JSON.parse(localStorage.getItem(k)); } catch (e) { return null; } },
+  set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} },
+  del(k) { try { localStorage.removeItem(k); } catch (e) {} },
+};
+const ui = Object.assign({ collapsed: [], tab: 'week' }, ls.get(UIKEY) || {});
+let state, filterOff = new Set(), editing = null, collapsed = new Set(ui.collapsed), dragging = false;
+const narrow = matchMedia('(max-width: 900px)');
+
+function uid() { return Math.random().toString(36).slice(2, 10); }
+const emptyState = () => ({ tasks: {}, cols: Object.fromEntries(COLS.map(c => [c.id, []])) });
+const isBoard = d => d && typeof d === 'object' && d.tasks && typeof d.tasks === 'object' && d.cols && typeof d.cols === 'object';
+function normalise(st) {           // tidies data from older saves or hand edits
+  st.cols ||= {}; st.tasks ||= {};
+  const seen = new Set();
+  for (const c of COLS) st.cols[c.id] = (Array.isArray(st.cols[c.id]) ? st.cols[c.id] : [])
+    .filter(id => st.tasks[id] && !seen.has(id) && seen.add(id));
+  for (const k of Object.keys(st.cols)) if (!COLS.some(c => c.id === k)) delete st.cols[k];
+  for (const [id, t] of Object.entries(st.tasks)) {
+    t.id = id; t.title ||= '(untitled)'; t.note ||= ''; t.links = Array.isArray(t.links) ? t.links : [];
+    if (!STREAMS.some(s => s.id === t.stream)) t.stream = STREAMS[0].id;
+    if (!seen.has(id)) st.cols.backlog.push(id);   // task with no column → backlog
+  }
+  return st;
+}
+const load = () => { const d = ls.get(KEY); return isBoard(d) ? normalise(d) : emptyState(); };
+function save() { ls.set(KEY, state); schedulePush(); }
+const saveUI = () => ls.set(UIKEY, { collapsed: [...collapsed], tab: ui.tab });
+
+const streamOf = id => STREAMS.find(s => s.id === id) || STREAMS[0];
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const safeUrl = u => /^(https?:|mailto:|file:)/i.test(u) ? u : 'https://' + u;
+
+function cardHTML(t) {
+  const s = streamOf(t.stream);
+  const links = t.links.length ? `<span class="links">${t.links.map(l =>
+    `<a href="${esc(safeUrl(l.url))}" target="_blank" rel="noopener" draggable="false" title="${esc(l.url)}">🔗 ${esc(l.label || 'Link')}</a>`).join('')}</span>` : '';
+  return `<div class="card" data-id="${t.id}" data-stream="${t.stream}" style="--c:${s.c}">
+    <button class="edit" title="Edit">✎</button>
+    <span class="s" title="${esc(s.name)}">${esc(s.short)}</span><span class="t">${esc(t.title)}</span>${t.note ? `<span class="note">${esc(t.note)}</span>` : ''}${links}
+  </div>`;
+}
+
+function render() {
+  const board = document.getElementById('board');
+  board.innerHTML = COLS.map(c => {
+    const active = ui.tab === c.id ? ' active' : '';
+    if (c.id === 'backlog') {
+      const secs = STREAMS.map(s => {
+        const ids = state.cols.backlog.filter(id => state.tasks[id].stream === s.id);
+        return `<div class="bsec ${collapsed.has(s.id) ? 'collapsed' : ''}" data-sec="${s.id}" style="--c:${s.c}">
+          <div class="bhead">${esc(s.name)} <span class="n"></span><span class="arrow">▾</span></div>
+          <div class="list" data-col="backlog" data-stream="${s.id}">${ids.map(id => cardHTML(state.tasks[id])).join('')}</div>
+        </div>`;
+      }).join('');
+      return `<section class="col${active}" id="col-backlog"><h2><span>Backlog <span class="count" data-count="backlog"></span></span></h2><div class="bwrap">${secs}</div></section>`;
+    }
+    return `<section class="col${active}" id="col-${c.id}">
+      <h2><span>${c.name} <span class="count" data-count="${c.id}"></span></span>
+        ${c.id === 'done' ? '<button class="btn" id="clearDone" title="Delete all completed tasks">Clear</button>' : ''}</h2>
+      <div class="list" data-col="${c.id}">${state.cols[c.id].map(id => cardHTML(state.tasks[id])).join('')}</div>
+    </section>`;
+  }).join('');
+
+  board.querySelectorAll('.list').forEach(el => {
+    const secStream = el.dataset.stream;   // backlog sections only accept their own stream
+    Sortable.create(el, {
+      group: { name: 'board', put: secStream ? (to, from, dragEl) => dragEl.dataset.stream === secStream : true },
+      animation: 140, ghostClass: 'sortable-ghost', filter: '.edit, a', preventOnFilter: false,
+      delay: 250, delayOnTouchOnly: true, touchStartThreshold: 5,   // on touch screens: press and hold to drag
+      onSort: syncFromDOM, onStart: () => { dragging = true; }, onEnd: () => { setTimeout(() => { dragging = false; }, 50); },
+    });
+  });
+  board.querySelectorAll('.bhead').forEach(h => h.onclick = () => {
+    const sec = h.parentElement, id = sec.dataset.sec;
+    sec.classList.toggle('collapsed'); collapsed.has(id) ? collapsed.delete(id) : collapsed.add(id); saveUI();
+  });
+  document.getElementById('clearDone').onclick = () => {
+    if (!state.cols.done.length || !confirm(`Delete ${state.cols.done.length} completed task(s)? This cannot be undone.`)) return;
+    state.cols.done.forEach(id => delete state.tasks[id]); state.cols.done = []; save(); render();
+  };
+  document.getElementById('empty').hidden = Object.keys(state.tasks).length > 0;
+  applyFilter(); renderChips();
+}
+
+function syncFromDOM() {
+  for (const c of COLS) state.cols[c.id] = [];
+  document.querySelectorAll('.list').forEach(el => {
+    state.cols[el.dataset.col].push(...[...el.children].map(c => c.dataset.id).filter(Boolean));
+  });
+  save(); applyFilter(); renderChips();
+}
+
+function renderChips() {
+  const counts = {};
+  for (const c of ['backlog', 'next', 'week', 'wait']) for (const id of state.cols[c]) counts[state.tasks[id].stream] = (counts[state.tasks[id].stream] || 0) + 1;
+  document.getElementById('chips').innerHTML = STREAMS.map(s =>
+    `<button class="chip ${filterOff.has(s.id) ? 'off' : ''}" data-s="${s.id}" title="Click to show/hide. Double-click to show only this stream">
+      <span class="dot" style="background:${s.c}"></span>${s.name} <span class="n">${counts[s.id] || 0}</span></button>`).join('');
+}
+
+function renderTabs(shown) {
+  document.getElementById('tabs').innerHTML = COLS.map(c =>
+    `<button data-tab="${c.id}" class="${ui.tab === c.id ? 'active' : ''}">${c.tab} <span class="tn">${shown[c.id]}</span></button>`).join('');
+}
+document.getElementById('tabs').addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return;
+  ui.tab = b.dataset.tab; saveUI();
+  document.querySelectorAll('.col').forEach(c => c.classList.toggle('active', c.id === 'col-' + ui.tab));
+  document.querySelectorAll('#tabs button').forEach(t => t.classList.toggle('active', t === b));
+  window.scrollTo({ top: 0 });
+});
+
+function applyFilter() {
+  const q = document.getElementById('q').value.trim().toLowerCase();
+  document.querySelectorAll('.card').forEach(el => {
+    const t = state.tasks[el.dataset.id];
+    const hay = (t.title + ' ' + t.note + ' ' + t.links.map(l => l.label + ' ' + l.url).join(' ')).toLowerCase();
+    el.classList.toggle('hidden', filterOff.has(t.stream) || (q && !hay.includes(q)));
+  });
+  document.querySelectorAll('.bsec').forEach(sec => {
+    sec.classList.toggle('hidden', filterOff.has(sec.dataset.sec));
+    const total = sec.querySelectorAll('.card').length, shown = sec.querySelectorAll('.card:not(.hidden)').length;
+    sec.querySelector('.n').textContent = shown === total ? `(${total})` : `(${shown} of ${total})`;
+  });
+  const shownBy = {};
+  for (const c of COLS) {
+    const total = state.cols[c.id].length;
+    const shown = document.querySelectorAll(`[data-col="${c.id}"] .card:not(.hidden)`).length;
+    shownBy[c.id] = shown;
+    document.querySelector(`[data-count="${c.id}"]`).textContent = shown === total ? `(${total})` : `(${shown} of ${total})`;
+  }
+  renderTabs(shownBy);
+}
+
+document.getElementById('chips').addEventListener('click', e => {
+  const b = e.target.closest('.chip'); if (!b) return;
+  const id = b.dataset.s; filterOff.has(id) ? filterOff.delete(id) : filterOff.add(id);
+  renderChips(); applyFilter();
+});
+document.getElementById('chips').addEventListener('dblclick', e => {
+  const b = e.target.closest('.chip'); if (!b) return;
+  const id = b.dataset.s;
+  const onlyThis = filterOff.size === STREAMS.length - 1 && !filterOff.has(id);
+  filterOff = onlyThis ? new Set() : new Set(STREAMS.map(s => s.id).filter(x => x !== id));
+  renderChips(); applyFilter();
+});
+document.getElementById('q').addEventListener('input', applyFilter);
+document.getElementById('menuBtn').onclick = () => document.getElementById('extra').classList.toggle('open');
+
+// ---------- Edit / add dialog ----------
+const dlg = document.getElementById('dlg');
+document.getElementById('fStream').innerHTML = STREAMS.map(s => `<option value="${s.id}">${s.name}</option>`).join('');
+document.getElementById('fCol').innerHTML = COLS.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
+const colOf = id => COLS.find(c => state.cols[c.id].includes(id)).id;
+const linksList = document.getElementById('fLinksList');
+function addLinkRow(label = 'Link', url = '') {
+  const row = document.createElement('div'); row.className = 'lrow';
+  row.innerHTML = `<input type="text" class="lname" placeholder="Link"><input type="text" class="lurl" placeholder="https://…" inputmode="url" autocapitalize="off"><button type="button" class="btn rm" title="Remove link">×</button>`;
+  row.querySelector('.lname').value = label || 'Link';
+  row.querySelector('.lurl').value = url;
+  row.querySelector('.rm').onclick = () => row.remove();
+  linksList.appendChild(row);
+  return row;
+}
+const readLinks = () => [...linksList.querySelectorAll('.lrow')]
+  .map(r => ({ label: r.querySelector('.lname').value.trim() || 'Link', url: r.querySelector('.lurl').value.trim() }))
+  .filter(l => l.url);
+document.getElementById('fAddLink').onclick = () => addLinkRow().querySelector('.lurl').focus();
+function openDialog(id) {
+  editing = id;
+  const t = id ? state.tasks[id] : { title: '', note: '', links: [], stream: STREAMS.find(s => !filterOff.has(s.id))?.id || 'rep' };
+  document.getElementById('dlgTitle').textContent = id ? 'Edit task' : 'New task';
+  document.getElementById('fTitle').value = t.title;
+  document.getElementById('fNote').value = t.note;
+  linksList.innerHTML = '';
+  t.links.forEach(l => addLinkRow(l.label, l.url));
+  if (!t.links.length) addLinkRow();
+  document.getElementById('fStream').value = t.stream;
+  document.getElementById('fCol').value = id ? colOf(id) : (narrow.matches ? ui.tab : 'backlog');
+  document.getElementById('fDel').style.visibility = id ? 'visible' : 'hidden';
+  const viewOnly = narrow.matches && !!id;   // phone, opening an existing card: don't pop up the keyboard
+  document.getElementById('fCancel').autofocus = viewOnly;
+  document.getElementById('fTitle').autofocus = !viewOnly;
+  dlg.showModal();
+}
+document.getElementById('board').addEventListener('click', e => {
+  if (dragging || e.target.closest('a')) return;
+  const b = e.target.closest('.edit'); if (b) return openDialog(b.closest('.card').dataset.id);
+  const c = e.target.closest('.card'); if (c && narrow.matches) openDialog(c.dataset.id);   // phone: tap a card to open it
+});
+document.getElementById('board').addEventListener('dblclick', e => {
+  if (e.target.closest('a')) return;
+  const c = e.target.closest('.card'); if (c) openDialog(c.dataset.id);
+});
+document.getElementById('addBtn').onclick = () => openDialog(null);
+document.getElementById('fCancel').onclick = () => dlg.close();
+document.getElementById('fDel').onclick = () => {
+  if (!confirm('Delete this task?')) return;
+  const col = colOf(editing); state.cols[col] = state.cols[col].filter(x => x !== editing);
+  delete state.tasks[editing]; save(); dlg.close(); render();
+};
+document.getElementById('dlgForm').addEventListener('submit', () => {
+  const title = document.getElementById('fTitle').value.trim(); if (!title) return;
+  const data = { title, note: document.getElementById('fNote').value.trim(),
+                 links: readLinks(), stream: document.getElementById('fStream').value };
+  const newCol = document.getElementById('fCol').value;
+  if (editing) {
+    Object.assign(state.tasks[editing], data);
+    const oldCol = colOf(editing);
+    if (oldCol !== newCol) { state.cols[oldCol] = state.cols[oldCol].filter(x => x !== editing); state.cols[newCol].unshift(editing); }
+  } else {
+    const id = uid(); state.tasks[id] = { id, ...data }; state.cols[newCol].unshift(id);
+  }
+  save(); render();
+});
+
+// ---------- Backup / restore ----------
+const today = () => new Date().toISOString().slice(0, 10);
+function download(blob, name) {
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+}
+document.getElementById('exportBtn').onclick = () =>
+  download(new Blob([JSON.stringify(state, null, 2)], { type: 'application/json' }), `todo-board-${today()}.json`);
+document.getElementById('importBtn').onclick = () => document.getElementById('importFile').click();
+document.getElementById('importFile').onchange = async e => {
+  const f = e.target.files[0]; if (!f) return;
+  try {
+    const data = JSON.parse(await f.text());
+    if (!isBoard(data)) throw new Error('Not a board backup file');
+    if (!confirm('Replace the current board with this backup?')) return;
+    state = normalise(data); save(); render();
+  } catch (err) { alert('Could not import: ' + err.message); }
+  e.target.value = '';
+};
+
+// ---------- Word (.docx) export ----------
+async function exportDocx() {
+  const x = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  const rels = [];
+  const run = (text, o = {}) => `<w:r><w:rPr>${o.b ? '<w:b/>' : ''}${o.i ? '<w:i/>' : ''}${o.color ? `<w:color w:val="${o.color}"/>` : ''}${o.u ? '<w:u w:val="single"/>' : ''}${o.sz ? `<w:sz w:val="${o.sz}"/>` : ''}</w:rPr><w:t xml:space="preserve">${x(text)}</w:t></w:r>`;
+  const link = (text, url) => { const id = 'rId' + (rels.length + 10); rels.push({ id, url }); return `<w:hyperlink r:id="${id}">${run(text, { color: '0563C1', u: true, sz: 20 })}</w:hyperlink>`; };
+  const para = (runs, o = {}) => `<w:p><w:pPr><w:spacing w:before="${o.before || 0}" w:after="${o.after ?? 40}"/>${o.ind ? `<w:ind w:left="${o.ind}"/>` : ''}</w:pPr>${runs}</w:p>`;
+
+  let body = para(run('To-Do Board', { b: true, sz: 40 }), { after: 60 }) +
+             para(run('Exported ' + new Date().toLocaleDateString('en-AU', { day: 'numeric', month: 'long', year: 'numeric' }), { i: true, color: '6B7280', sz: 20 }), { after: 200 });
+  for (const c of COLS) {
+    const ids = state.cols[c.id]; if (!ids.length) continue;
+    body += para(run(`${c.name} (${ids.length})`, { b: true, sz: 32, color: '1F2937' }), { before: 280, after: 80 });
+    for (const s of STREAMS) {
+      const items = ids.map(id => state.tasks[id]).filter(t => t.stream === s.id); if (!items.length) continue;
+      body += para(run(s.name, { b: true, sz: 24, color: s.c.slice(1) }), { before: 120, after: 40 });
+      for (const t of items) {
+        body += para(run('☐  ', { sz: 22 }) + run(t.title, { sz: 22 }), { ind: 360, after: t.note || t.links.length ? 0 : 40 });
+        if (t.note) body += para(run(t.note, { i: true, color: '6B7280', sz: 20 }), { ind: 720, after: t.links.length ? 0 : 40 });
+        if (t.links.length) body += para(t.links.map(l => link(l.label || 'Link', safeUrl(l.url))).join(run('   ·   ', { sz: 20, color: '6B7280' })), { ind: 720, after: 40 });
+      }
+    }
+  }
+  const W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main', R = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships';
+  const zip = new JSZip();
+  zip.file('[Content_Types].xml', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>`);
+  zip.file('_rels/.rels', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="${R}/officeDocument" Target="word/document.xml"/></Relationships>`);
+  zip.file('word/_rels/document.xml.rels', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${rels.map(r => `<Relationship Id="${r.id}" Type="${R}/hyperlink" Target="${x(r.url)}" TargetMode="External"/>`).join('')}</Relationships>`);
+  zip.file('word/document.xml', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document xmlns:w="${W}" xmlns:r="${R}"><w:body>${body}<w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1134" w:right="1134" w:bottom="1134" w:left="1134" w:header="567" w:footer="567" w:gutter="0"/></w:sectPr></w:body></w:document>`);
+  download(await zip.generateAsync({ type: 'blob', mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' }), `todo-board-${today()}.docx`);
+}
+document.getElementById('docxBtn').onclick = () => exportDocx().catch(err => alert('Word export failed: ' + err.message));
+
+// ---------- GitHub sync ----------
+// Cards are stored as board.json in a private repo, read and written through the GitHub API with a key kept on this device.
+// Every save sends the version (sha) it was based on, so GitHub refuses a save that would overwrite someone else's newer change.
+const GHKEY = 'joel-kanban-gh', SYNCKEY = 'joel-kanban-sync';
+let gh = ls.get(GHKEY);                                  // { owner, repo, path, branch, token }
+const sync = Object.assign({ sha: null, pending: false }, ls.get(SYNCKEY) || {});
+let ghText = null, ghEtag = null, pushTimer = null, pushing = false, statusTimer = null;
+const syncBtn = document.getElementById('syncBtn');
+const persistSync = () => ls.set(SYNCKEY, sync);
+
+function setSync(kind, detail = '') {
+  const label = { off: '☁ Set up sync', ok: '☁ Synced', pending: '☁ Saving…', saving: '☁ Saving…', updated: '☁ Updated', offline: '☁ Offline', error: '⚠ Sync problem' }[kind];
+  syncBtn.textContent = label;
+  syncBtn.title = detail || { off: 'Save this board to GitHub so it is the same on every device', ok: 'All changes saved to GitHub',
+    offline: 'No connection. Changes are kept on this device and will save when you are back online.' }[kind] || '';
+  syncBtn.classList.toggle('warn', kind === 'error');
+  clearTimeout(statusTimer);
+  if (kind === 'updated') statusTimer = setTimeout(() => setSync('ok'), 4000);
+}
+const b64enc = s => { const b = new TextEncoder().encode(s); let bin = ''; for (let i = 0; i < b.length; i += 0x8000) bin += String.fromCharCode(...b.subarray(i, i + 0x8000)); return btoa(bin); };
+const b64dec = s => new TextDecoder().decode(Uint8Array.from(atob(s.replace(/\s/g, '')), c => c.charCodeAt(0)));
+const ghUrl = () => `https://api.github.com/repos/${encodeURIComponent(gh.owner)}/${encodeURIComponent(gh.repo)}/contents/${gh.path.split('/').map(encodeURIComponent).join('/')}`;
+const ghHeaders = (extra = {}) => ({ Authorization: `Bearer ${gh.token}`, Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28', ...extra });
+class GhError extends Error { constructor(msg, status) { super(msg); this.status = status; } }
+function ghProblem(status) {
+  return { 401: 'GitHub did not accept the access key. It may be mistyped or expired: click here to enter a new one.',
+           403: 'The access key is not allowed to change this repo. Check it has Contents: Read and write.',
+           404: 'GitHub could not find that repo. Check the username, repo name, and that the key can see the repo.' }[status]
+         || `GitHub error ${status}`;
+}
+
+async function ghGet(conditional) {
+  let res;
+  try {
+    res = await fetch(`${ghUrl()}?ref=${encodeURIComponent(gh.branch)}&t=${Date.now()}`,
+      { headers: ghHeaders(conditional && ghEtag ? { 'If-None-Match': ghEtag } : {}), cache: 'no-store' });
+  } catch (e) { throw new GhError('offline', 0); }
+  if (res.status === 304) return { status: 304 };
+  if (res.status === 404) {   // repo or file missing: tell them apart
+    const repo = await fetch(`https://api.github.com/repos/${encodeURIComponent(gh.owner)}/${encodeURIComponent(gh.repo)}`, { headers: ghHeaders(), cache: 'no-store' }).catch(() => null);
+    if (repo && repo.ok) return { status: 404 };
+    throw new GhError(ghProblem(404), 404);
+  }
+  if (!res.ok) throw new GhError(ghProblem(res.status), res.status);
+  ghEtag = res.headers.get('ETag');
+  const j = await res.json();
+  return { status: 200, sha: j.sha, text: b64dec(j.content || '') };
+}
+async function ghPut(text) {
+  const body = { message: 'Update board', content: b64enc(text), branch: gh.branch };
+  if (sync.sha) body.sha = sync.sha;
+  let res;
+  try { res = await fetch(ghUrl(), { method: 'PUT', headers: ghHeaders({ 'Content-Type': 'application/json' }), body: JSON.stringify(body) }); }
+  catch (e) { throw new GhError('offline', 0); }
+  if (res.status === 409 || res.status === 422) throw new GhError('conflict', 409);
+  if (!res.ok) throw new GhError(ghProblem(res.status), res.status);
+  const j = await res.json();
+  sync.sha = j.content.sha; sync.pending = false; ghText = text; ghEtag = null; persistSync();
+}
+function adoptRemote(r) {          // replace the board on screen with the GitHub copy
+  let data; try { data = JSON.parse(r.text); } catch (e) { setSync('error', 'board.json on GitHub is not valid JSON, so it was not loaded.'); return false; }
+  if (!isBoard(data)) return false;
+  sync.sha = r.sha; sync.pending = false; ghText = r.text; persistSync();
+  state = normalise(data); ls.set(KEY, state);
+  if (dlg.open) dlg.close();
+  render(); return true;
+}
+function handleSyncError(e) {
+  if (e.status === 0) { setSync('offline'); return; }
+  setSync('error', e.message);
+}
+
+function schedulePush() {
+  if (!gh) return;
+  sync.pending = true; persistSync(); setSync('pending');
+  clearTimeout(pushTimer); pushTimer = setTimeout(pushNow, 1200);
+}
+async function pushNow() {
+  if (!gh || !sync.pending) return;
+  if (pushing) { clearTimeout(pushTimer); pushTimer = setTimeout(pushNow, 800); return; }
+  pushing = true; setSync('saving');
+  try {
+    const text = JSON.stringify(state, null, 2);
+    if (text === ghText && sync.sha) { sync.pending = false; persistSync(); }
+    else await ghPut(text);
+    setSync('ok');
+  } catch (e) {
+    if (e.status === 409) {        // changed elsewhere since we last loaded
+      try {
+        const r = await ghGet(false);
+        if (r.status === 200 && adoptRemote(r)) alert('This board was changed on another device (or by Claude) a moment ago, so it has been reloaded with the latest version.\n\nPlease redo your last change.');
+        setSync('ok');
+      } catch (e2) { handleSyncError(e2); }
+    } else handleSyncError(e);
+  } finally { pushing = false; }
+}
+async function pull(conditional = true) {
+  if (!gh || pushing || dragging || dlg.open || document.visibilityState !== 'visible') return;
+  if (sync.pending) { pushNow(); return; }       // unsaved changes go up first
+  try {
+    const r = await ghGet(conditional);
+    if (r.status === 200 && r.sha !== sync.sha && !sync.pending) { if (adoptRemote(r)) setSync('updated', 'Loaded changes made on another device or by Claude.'); }
+    else if (syncBtn.textContent !== '☁ Updated') setSync('ok');
+  } catch (e) { handleSyncError(e); }
+}
+async function ghConnect() {
+  setSync('saving', 'Connecting to GitHub…');
+  ghEtag = null;
+  const r = await ghGet(false);
+  let remote = null; if (r.status === 200) { try { remote = JSON.parse(r.text); } catch (e) {} }
+  const remoteHasCards = isBoard(remote) && Object.keys(remote.tasks).length > 0;
+  const localHasCards = Object.keys(state.tasks).length > 0;
+  if (remoteHasCards && localHasCards && r.sha !== sync.sha &&
+      !confirm('GitHub already has a board saved.\n\nOK = load the GitHub board onto this device (replaces what is on screen).\nCancel = upload the board on screen to GitHub instead.')) {
+    sync.sha = r.sha; sync.pending = true; await pushNow(); return;
+  }
+  if (remoteHasCards) { adoptRemote(r); setSync('ok'); return; }
+  sync.sha = r.status === 200 ? r.sha : null; sync.pending = true; await pushNow();   // empty / missing file: upload this board
+}
+
+// Settings dialog
+const ghDlg = document.getElementById('ghDlg');
+const gf = id => document.getElementById(id);
+syncBtn.onclick = () => {
+  const g = gh || {};
+  gf('gOwner').value = g.owner || 'joelpollock-code'; gf('gRepo').value = g.repo || 'todo-board-data'; gf('gToken').value = g.token || '';
+  gf('gPath').value = g.path || 'board.json'; gf('gBranch').value = g.branch || 'main';
+  gf('gOff').style.visibility = gh ? 'visible' : 'hidden';
+  ghDlg.showModal();
+};
+gf('gCancel').onclick = () => ghDlg.close();
+gf('gOff').onclick = () => {
+  if (!confirm('Turn off sync on this device? Your cards stay on screen and on GitHub; this device just stops saving to GitHub.')) return;
+  gh = null; ls.del(GHKEY); ls.del(SYNCKEY); sync.sha = null; sync.pending = false; ghDlg.close(); setSync('off');
+};
+gf('ghForm').addEventListener('submit', async () => {
+  gh = { owner: gf('gOwner').value.trim(), repo: gf('gRepo').value.trim(), token: gf('gToken').value.trim(),
+         path: gf('gPath').value.trim() || 'board.json', branch: gf('gBranch').value.trim() || 'main' };
+  ls.set(GHKEY, gh);
+  try { await ghConnect(); } catch (e) { handleSyncError(e); if (e.status && e.status !== 0) alert(e.message); }
+});
+
+setInterval(() => pull(true), 20000);
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') pull(true); });
+window.addEventListener('online', () => pull(true));
+window.addEventListener('pageshow', e => { if (e.persisted) pull(true); });
+
+// ---------- Start ----------
+state = load();
+render();
+if (gh) { setSync(sync.pending ? 'pending' : 'ok'); pull(false); } else setSync('off');
+</script>
+</body>
+</html>
