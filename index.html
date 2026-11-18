@@ -229,7 +229,7 @@ function normalise(st) {           // tidies data from older saves or hand edits
 // Completion dates (local time, YYYY-MM-DD). A card gets doneAt when it lands in Completed and loses it when it leaves.
 const pad = n => String(n).padStart(2, '0');
 const localDate = (d = new Date()) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-const thisMonth = () => localDate().slice(0, 7);
+const cutoff = () => { const d = new Date(); d.setDate(d.getDate() - 30); return localDate(d); };
 function stampDone(st) {
   let changed = false;
   const done = new Set(st.cols.done);
@@ -239,7 +239,7 @@ function stampDone(st) {
   }
   return changed;
 }
-const isOld = t => t.doneAt && t.doneAt.slice(0, 7) < thisMonth();
+const isOld = t => t.doneAt && t.doneAt < cutoff();
 function fmtDate(iso) {
   const [y, m, d] = iso.split('-').map(Number), dt = new Date(y, m - 1, d);
   return dt.toLocaleDateString('en-AU', { day: 'numeric', month: 'short', ...(y !== new Date().getFullYear() ? { year: 'numeric' } : {}) });
@@ -279,7 +279,7 @@ function render() {
     }
     return `<section class="col${active}" id="col-${c.id}">
       <h2><span>${c.name} <span class="count" data-count="${c.id}"></span></span>
-        ${c.id === 'done' ? '<span class="hbtns"><button class="btn" id="oldBtn" title="Show or hide cards completed before this month"></button><button class="btn" id="clearDone" title="Delete all completed tasks">Clear</button></span>' : ''}</h2>
+        ${c.id === 'done' ? '<span class="hbtns"><button class="btn" id="oldBtn" title="Show or hide cards completed more than 30 days ago"></button></span>' : ''}</h2>
       <div class="list" data-col="${c.id}">${state.cols[c.id].map(id => cardHTML(state.tasks[id])).join('')}</div>
     </section>`;
   }).join('');
@@ -297,10 +297,6 @@ function render() {
     const sec = h.parentElement, id = sec.dataset.sec;
     sec.classList.toggle('collapsed'); collapsed.has(id) ? collapsed.delete(id) : collapsed.add(id); saveUI();
   });
-  document.getElementById('clearDone').onclick = () => {
-    if (!state.cols.done.length || !confirm(`Delete ${state.cols.done.length} completed task(s)? This cannot be undone.`)) return;
-    state.cols.done.forEach(id => delete state.tasks[id]); state.cols.done = []; save(); render();
-  };
   document.getElementById('oldBtn').onclick = () => { ui.showOld = !ui.showOld; saveUI(); applyFilter(); };
   document.getElementById('empty').hidden = Object.keys(state.tasks).length > 0;
   applyFilter(); renderChips();
@@ -347,7 +343,7 @@ function applyFilter() {
   });
   const oldCount = state.cols.done.filter(id => isOld(state.tasks[id])).length, oldBtn = document.getElementById('oldBtn');
   oldBtn.hidden = oldCount === 0;
-  oldBtn.textContent = ui.showOld ? 'Hide earlier' : `Earlier months (${oldCount})`;
+  oldBtn.textContent = ui.showOld ? 'Hide > 30 days' : `Show hidden (${oldCount})`;
   document.querySelectorAll('.bsec').forEach(sec => {
     sec.classList.toggle('hidden', filterOff.has(sec.dataset.sec));
     const total = sec.querySelectorAll('.card').length, shown = sec.querySelectorAll('.card:not(.hidden)').length;
